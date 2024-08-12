@@ -1,0 +1,91 @@
+name: 'CI PIPELINE'
+
+on:
+  push:
+    branches: 
+      - develop
+      - main
+
+  pull_request:
+    branches: 
+      - main
+      
+permissions:
+  contents: read
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDS }}
+        
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v2
+      with:
+        terraform_version: 1.8.2
+
+    - name: Get Admin SSH Key
+      run: |
+        echo "${{ secrets.ADMIN_SSH_KEY }}" > admin_ssh_key.pub
+        ls -la
+      env:
+        ADMIN_SSH_KEY: "${{ secrets.ADMIN_SSH_KEY }}" 
+      
+    - name: Terraform Init
+      run: |
+        export ARM_CLIENT_ID="${{ secrets.AZURE_CLIENT_ID }}"
+        export ARM_CLIENT_SECRET="${{ secrets.AZURE_CLIENT_SECRET }}"
+        export ARM_TENANT_ID="${{ secrets.AZURE_TENANT_ID }}"
+        export ARM_SUBSCRIPTION_ID="${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+        terraform init -backend-config='dev.config'
+
+    - name: Terraform Format
+      run: terraform fmt -recursive
+
+    - name: Terraform Validate
+      run: terraform validate
+          
+    - name: Terraform Plan
+      run: |
+        export ARM_CLIENT_ID="${{ secrets.AZURE_CLIENT_ID }}"
+        export ARM_CLIENT_SECRET="${{ secrets.AZURE_CLIENT_SECRET }}"
+        export ARM_TENANT_ID="${{ secrets.AZURE_TENANT_ID }}"
+        export ARM_SUBSCRIPTION_ID="${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+        export ADMIN_SSH_KEY="${{ secrets.ADMIN_SSH_KEY }}"
+        terraform plan -var-file='dev.tfvars'
+
+    - name: Terraform Apply
+      if: (github.ref =='refs/heads/main')
+      run: |
+        export ARM_CLIENT_ID="${{ secrets.AZURE_CLIENT_ID }}"
+        export ARM_CLIENT_SECRET="${{ secrets.AZURE_CLIENT_SECRET }}"
+        export ARM_TENANT_ID="${{ secrets.AZURE_TENANT_ID }}"
+        export ARM_SUBSCRIPTION_ID="${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+        export ADMIN_SSH_KEY="${{ secrets.ADMIN_SSH_KEY }}"
+        terraform apply -var-file='dev.tfvars' -auto-approve 
+        
+    # - name: Terraform Destroy
+    #   run: |
+    #     export ARM_CLIENT_ID="${{ secrets.AZURE_CLIENT_ID }}"
+    #     export ARM_CLIENT_SECRET="${{ secrets.AZURE_CLIENT_SECRET }}"
+    #     export ARM_TENANT_ID="${{ secrets.AZURE_TENANT_ID }}"
+    #     export ARM_SUBSCRIPTION_ID="${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+    #     export ADMIN_SSH_KEY="${{ secrets.ADMIN_SSH_KEY }}"
+    #     terraform destroy -var-file='dev.tfvars' -auto-approve
+
+    # - name: Notify Slack on Success
+    #   if: always() && github.ref == 'refs/heads/main'
+    #   uses: rtCamp/action-slack-notify@v2
+    #   env:
+    #     SLACK_COLOR: ${{ job.status }}
+    #     SLACK_MESSAGE_ON_SUCCESS: "Infrastructure deployed [SUCCESSFULLY] to Dev}"
+    #     SLACK_MESSAGE_ON_FAILURE: "Infrastructure deployment [FAILED] to Dev}"
+    #     SLACK_TITLE: "Deployment status"
+    #     SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+    #     SLACK_FOOTER: ''
